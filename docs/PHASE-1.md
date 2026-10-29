@@ -13,7 +13,7 @@ No FastAPI and no WhatsApp in this phase. Those come in Phase 2 and Phase 3.
 | 3 | `.gitignore` | Ignores `store/`, `.env`, `__pycache__/`, `.venv/` |
 | 3b | `app/config.py` | Paths and model settings shared by ingest and the agent |
 | 4 | `app/ingest.py` | CLI: `--company NAME` + PDF path(s) → load → chunk → embed → Chroma + `store/company.json` |
-| 5 | `app/agent.py` | LangGraph agent: retrieve chunks → answer with strict prompt; memory per `thread_id` |
+| 5 | `app/agent.py` | LangGraph agent: the model calls a `search_company_info` tool when it needs facts, then answers with a strict prompt; memory per `thread_id` |
 | 6 | `app/chat.py` | Small terminal chat loop to test the agent (also handy as a demo fallback) |
 
 ## Steps
@@ -22,14 +22,14 @@ No FastAPI and no WhatsApp in this phase. Those come in Phase 2 and Phase 3.
 2. **Ingest:**
    - Parse the args (`--company`, one or more PDF paths). Fail clearly if a file is missing or isn't a PDF.
    - Build the new store in a temp folder and swap it in only on success, so a failed run keeps the current company.
-   - `pypdf` → `RecursiveCharacterTextSplitter` (≈1000 chars, 150 overlap).
+   - `pypdf` → `RecursiveCharacterTextSplitter` (≈500 chars, 80 overlap).
    - Embed into Chroma, persisted in `store/chroma/`.
    - Write `store/company.json` with `{ "company": NAME, "files": [...], "ingested_at": ... }`.
    - Print a summary: company, number of pages, number of chunks.
 3. **Agent:**
    - At startup, read `store/company.json`. If it's missing, show an error that says to run ingest first.
    - Build the chat model with `init_chat_model(LLM_MODEL)`, so the provider comes from `.env`.
-   - Graph: `retrieve` (top ~4 chunks for the latest question) → `answer` (system prompt + chunks + history).
+   - Graph: `agent` ⇄ `tools`. The model decides whether to call `search_company_info(query)`: it embeds the query, takes the top 5 nearest chunks and returns the best 3 scoring ≥ 0.4. Greetings and off-topic messages skip the search.
    - Memory: `InMemorySaver` checkpointer, `thread_id` per user.
 4. **System prompt:** follows the rules in PROJECT-CONTEXT.md:
    - "You are the assistant for {company}."

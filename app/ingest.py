@@ -28,9 +28,11 @@ def ingest(company: str, pdfs: list[Path]) -> dict:
         for pdf in pdfs
         for i, page in enumerate(PdfReader(pdf).pages)
     ]
-    chunks = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150).split_documents(pages)
+    chunks = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=80).split_documents(pages)
     if not chunks:
         sys.exit("No text found in the PDF(s). Scanned/image-only PDFs are not supported.")
+    for i, chunk in enumerate(chunks):
+        chunk.metadata["chunk"] = i  # reading order, so search can pull in a hit's neighbours
 
     # Build into a temp dir and swap at the end, so a failed run keeps the current company intact.
     STORE_DIR.parent.mkdir(parents=True, exist_ok=True)

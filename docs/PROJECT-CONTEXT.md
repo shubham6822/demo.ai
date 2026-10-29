@@ -64,11 +64,13 @@ Ingest (once per company, one command):
   --company "X" + PDF path(s) → wipe old store → load → split into chunks
     → embed → Chroma (persisted in store/) + save company name (store/company.json)
 
-Per question:
+Per question (agentic RAG):
   user message + thread_id
-    → retrieve relevant chunks from Chroma
-    → LLM with strict system prompt + retrieved chunks + chat history
-    → answer (or polite refusal if off-topic / not in data)
+    → LLM (strict system prompt + chat history) decides:
+        greeting / off-topic → reply directly (no search)
+        company question     → calls search_company_info(query)
+                               → embed query → Chroma top 5 → best 3 (score ≥ 0.4) → back to LLM
+    → answer only from search results (or "don't have that info")
 ```
 
 ## Planned Project Layout
