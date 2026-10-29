@@ -22,8 +22,8 @@ The project is used as a sales/demo tool. When we demo to Company X, we use Comp
 
 | Phase | What | Status |
 |-------|------|--------|
-| 1 | Agent + one-command ingest of any company's PDF(s); answers grounded only in that data ([plan](PHASE-1.md)) | **Current** |
-| 2 | Expose agent over HTTP with FastAPI (`POST /chat`) for local testing | Planned |
+| 1 | Agent + one-command ingest of any company's PDF(s); answers grounded only in that data ([plan](PHASE-1.md)) | Done |
+| 2 | Expose agent over HTTP with FastAPI (`POST /chat`) for local testing ([plan](PHASE-2.md)) | **Current** |
 | 3 | WhatsApp integration (webhook → agent → reply) | Later, not in scope now |
 | 4 | Deployment | Later |
 

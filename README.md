@@ -7,7 +7,8 @@ python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt
 cp .env.example .env          # add your GOOGLE_API_KEY (https://aistudio.google.com/apikey)
 
 .venv/bin/python -m app.ingest --company "Company X" companyx.pdf
-.venv/bin/python -m app.chat
+.venv/bin/python -m app.chat                    # chat in terminal
+.venv/bin/uvicorn app.main:app --reload         # or: HTTP API, open http://localhost:8000/docs
 ```
 
 Run `ingest` again with another company's PDF to switch. See [docs/PROJECT-CONTEXT.md](docs/PROJECT-CONTEXT.md).

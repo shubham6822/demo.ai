@@ -25,4 +25,5 @@ python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt
 cp .env.example .env                                   # then add GOOGLE_API_KEY
 .venv/bin/python -m app.ingest --company "Company X" path/to/x.pdf   # switch agent to Company X
 .venv/bin/python -m app.chat                           # chat in terminal
+.venv/bin/uvicorn app.main:app --reload                # HTTP API: POST /chat, docs at /docs
 ```
