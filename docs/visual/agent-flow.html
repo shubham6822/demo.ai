@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How the Agent Works</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --board: #f3f3f0; --dot: #d3d2cb; --frame: rgba(255,255,255,.72); --frame-line: #e2e1da;
+    --card: #ffffff; --ink: #1f1f1d; --muted: #75746d; --line: #dcdbd4;
+    --you: #4262ff; --you-soft: #e8ebff;
+    --local: #12a073; --local-soft: #e2f5ee;
+    --cloud: #f08a24; --cloud-soft: #fff0e0;
+    --store: #8a5cf6; --store-soft: #f0eaff;
+    --sticky: #ffe97a; --sticky-ink: #4a3f12;
+    --edge: #b9b8b0; --ui: #ffffff; --shadow: 0 8px 30px rgba(0,0,0,.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --board: #18181a; --dot: #2f2f33; --frame: rgba(36,36,40,.8); --frame-line: #34343a;
+      --card: #242428; --ink: #ececea; --muted: #9a9a96; --line: #3a3a40;
+      --you: #7d93ff; --you-soft: #22284a; --local: #3fcf9a; --local-soft: #173328;
+      --cloud: #ffaa55; --cloud-soft: #3a2a18; --store: #a98bff; --store-soft: #2a2244;
+      --sticky: #e8cf5a; --sticky-ink: #2e2708; --edge: #55555c; --ui: #242428; --shadow: 0 8px 30px rgba(0,0,0,.5);
+    }
+  }
+  :root[data-theme="dark"] {
+    --board: #18181a; --dot: #2f2f33; --frame: rgba(36,36,40,.8); --frame-line: #34343a;
+    --card: #242428; --ink: #ececea; --muted: #9a9a96; --line: #3a3a40;
+    --you: #7d93ff; --you-soft: #22284a; --local: #3fcf9a; --local-soft: #173328;
+    --cloud: #ffaa55; --cloud-soft: #3a2a18; --store: #a98bff; --store-soft: #2a2244;
+    --sticky: #e8cf5a; --sticky-ink: #2e2708; --edge: #55555c; --ui: #242428; --shadow: 0 8px 30px rgba(0,0,0,.5);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--board); color: var(--ink);
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  svg#board { position: fixed; inset: 0; width: 100%; height: 100%; cursor: grab; touch-action: none; user-select: none; }
+  svg#board.dragging { cursor: grabbing; }
+  svg text { font-family: Inter, -apple-system, sans-serif; fill: var(--ink); }
+
+  /* Frames */
+  .frame rect { fill: var(--frame); stroke: var(--frame-line); stroke-width: 2; }
+  .frame text { font-size: 26px; font-weight: 700; fill: var(--muted); }
+
+  /* Nodes */
+  .node { opacity: .28; transition: opacity .5s; }
+  .node.on { opacity: 1; }
+  .node .card { fill: var(--card); stroke: var(--line); stroke-width: 1.5; filter: drop-shadow(0 4px 10px rgba(0,0,0,.08)); transition: stroke .3s, stroke-width .3s; }
+  .node .ring { fill: none; stroke-width: 3; opacity: 0; }
+  .node.active .ring { animation: pulse 1.6s ease-out infinite; }
+  .node.you .ring { stroke: var(--you); } .node.local .ring { stroke: var(--local); }
+  .node.cloud .ring { stroke: var(--cloud); } .node.store .ring { stroke: var(--store); }
+  .node.active .card { stroke-width: 3; }
+  .node.you.active .card { stroke: var(--you); } .node.local.active .card { stroke: var(--local); } .node.cloud.active .card { stroke: var(--cloud); }
+  @keyframes pulse { 0% { opacity: .9; transform: scale(1); } 100% { opacity: 0; transform: scale(1.12); } }
+  .ring { transform-box: fill-box; transform-origin: center; }
+  .node .title { font-size: 19px; font-weight: 700; }
+  .node .sub { font-size: 14px; fill: var(--muted); }
+  .badge-you { fill: var(--you); } .badge-local { fill: var(--local); } .badge-cloud { fill: var(--cloud); } .badge-store { fill: var(--store); }
+  .badge-num { fill: #fff !important; font-size: 14px; font-weight: 700; }
+  .chip-you { fill: var(--you-soft); } .chip-local { fill: var(--local-soft); } .chip-cloud { fill: var(--cloud-soft); } .chip-store { fill: var(--store-soft); }
+  .chip-text { font-size: 11px; font-weight: 700; letter-spacing: .06em; }
+  .chip-text.you { fill: var(--you); } .chip-text.local { fill: var(--local); } .chip-text.cloud { fill: var(--cloud); } .chip-text.store { fill: var(--store); }
+  .cloud-shape { fill: var(--cloud-soft); }
+  .cloud-edge { fill: none; }
+  .db-body { fill: var(--store-soft); stroke: var(--store); stroke-width: 2; }
+  .doc-body { fill: var(--card); stroke: var(--line); stroke-width: 2; }
+  .doc-fold { fill: var(--line); }
+  .pdf-badge { fill: #e5484d; } .env-badge { fill: #6b6b66; }
+  .ext-title { font-size: 17px; font-weight: 700; }
+  .ext-sub { font-size: 13px; fill: var(--muted); }
+
+  /* Edges */
+  .edge-base { fill: none; stroke: var(--edge); stroke-width: 2.5; stroke-dasharray: 7 7; opacity: .7; }
+  .edge-draw { fill: none; stroke-width: 3.5; opacity: 0; stroke-linecap: round; }
+  .edge-draw.show { opacity: 1; }
+  .edge-draw.done { opacity: 1; stroke-dasharray: 10 8; animation: march 1.2s linear infinite; }
+  .edge-draw.blue { stroke: var(--you); } .edge-draw.orange { stroke: var(--cloud); } .edge-draw.violet { stroke: var(--store); } .edge-draw.green { stroke: var(--local); }
+  @keyframes march { to { stroke-dashoffset: -36; } }
+
+  /* Stickies */
+  .sticky-pop { transform-box: fill-box; transform-origin: center; transform: scale(0); opacity: 0; transition: transform .45s cubic-bezier(.34,1.56,.64,1), opacity .3s; }
+  .sticky-pop.show { transform: scale(1); opacity: 1; }
+  .sticky-pop rect { fill: var(--sticky); filter: drop-shadow(0 6px 10px rgba(0,0,0,.15)); }
+  .sticky-pop text { font-family: Caveat, "Marker Felt", "Comic Sans MS", cursive; font-size: 23px; font-weight: 700; fill: var(--sticky-ink); }
+
+  /* Packet */
+  #packet { opacity: 0; transition: opacity .2s; }
+  #packet.show { opacity: 1; }
+  #packet circle.core { stroke: #fff; stroke-width: 3; }
+  #packet circle.halo { opacity: .25; }
+  #packet rect { stroke-width: 2; fill: var(--card); }
+  #packet text { font-size: 15px; font-weight: 600; }
+
+  /* UI overlay */
+  .topbar { position: fixed; top: 16px; left: 16px; right: 16px; display: flex; gap: 8px; align-items: center; pointer-events: none; }
+  .pill { pointer-events: auto; background: var(--ui); border-radius: 10px; box-shadow: var(--shadow); padding: 9px 14px; font-size: 14px; display: flex; align-items: center; gap: 10px; }
+  .pill b { font-weight: 700; }
+  .logo { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(135deg, var(--you), var(--store)); }
+  .seg { padding: 4px; gap: 2px; }
+  .seg button { font: inherit; font-size: 13px; font-weight: 600; border: 0; background: transparent; color: var(--muted); padding: 6px 12px; border-radius: 7px; cursor: pointer; }
+  .seg button.on { background: var(--you); color: #fff; }
+  .legend { margin-left: auto; font-size: 12px; color: var(--muted); }
+  .dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; vertical-align: -1px; margin-right: 4px; }
+
+  .dock { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(720px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 10px; }
+  .caption { background: var(--ui); border-radius: 14px; box-shadow: var(--shadow); padding: 16px 18px; }
+  .caption .meta { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; flex-wrap: wrap; }
+  .caption .tag { padding: 2px 8px; border-radius: 99px; font-size: 11px; }
+  .tag.you { background: var(--you-soft); color: var(--you); } .tag.local { background: var(--local-soft); color: var(--local); }
+  .tag.cloud { background: var(--cloud-soft); color: var(--cloud); } .tag.store { background: var(--store-soft); color: var(--store); }
+  .caption h2 { margin: 6px 0 4px; font-size: 19px; letter-spacing: -.01em; }
+  .caption p { margin: 0; font-size: 14.5px; line-height: 1.5; color: var(--ink); opacity: .85; }
+  .caption code { font-family: ui-monospace, Menlo, monospace; font-size: .88em; background: var(--board); padding: 1px 5px; border-radius: 4px; }
+  .controls { background: var(--ui); border-radius: 12px; box-shadow: var(--shadow); padding: 8px; display: flex; align-items: center; gap: 6px; }
+  .controls button { font: inherit; font-size: 14px; font-weight: 600; border: 0; background: transparent; color: var(--ink); padding: 8px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+  .controls button:hover { background: var(--board); }
+  .controls button.primary { background: var(--you); color: #fff; min-width: 84px; }
+  .progress { flex: 1; display: flex; gap: 3px; align-items: center; padding: 0 6px; min-width: 0; }
+  .progress span { flex: 1; height: 6px; border-radius: 3px; background: var(--line); cursor: pointer; transition: background .3s; min-width: 4px; }
+  .progress span.p1.done { background: var(--you); } .progress span.p2.done { background: var(--store); } .progress span.p3.done { background: var(--local); }
+  .progress span.cur { outline: 2px solid var(--ink); outline-offset: 1px; }
+  .progress i { width: 6px; }
+  @media (max-width: 640px) {
+    .legend, .hide-sm { display: none; }
+    .caption p { font-size: 13.5px; }
+    .caption h2 { font-size: 17px; }
+  }
+</style>
+</head>
+<body>
+<svg id="board" preserveAspectRatio="xMidYMid meet">
+  <defs>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1.6" fill="var(--dot)"/></pattern>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--edge)"/></marker>
+  </defs>
+  <rect x="-3000" y="-3000" width="8200" height="7700" fill="url(#grid)"/>
+  <g id="frames"></g><g id="edges"></g><g id="nodes"></g><g id="stickies"></g>
+  <g id="packet"><circle class="halo" r="20"/><circle class="core" r="10"/><rect y="-96" height="32" rx="16"/><text y="-74" text-anchor="middle"></text></g>
+</svg>
+
+<div class="topbar">
+  <div class="pill"><span class="logo"></span><b>demo.ai</b><span class="hide-sm" style="color:var(--muted)">How the agent works</span></div>
+  <div class="pill seg"><button data-view="high">High level</button><button data-view="low">Low level</button><button data-view="embed">Embedding</button></div>
+  <div class="pill legend">
+    <span><span class="dot" style="background:var(--you)"></span>You / customer</span>
+    <span><span class="dot" style="background:var(--local)"></span>Runs on laptop</span>
+    <span><span class="dot" style="background:var(--cloud)"></span>Google Gemini API</span>
+    <span><span class="dot" style="background:var(--store)"></span>Stored data</span>
+  </div>
+</div>
+
+<div class="dock">
+  <div class="caption">
+    <div class="meta"><span id="phase"></span><span id="count"></span><span id="tag" class="tag"></span></div>
+    <h2 id="title"></h2>
+    <p id="body"></p>
+  </div>
+  <div class="controls">
+    <button id="prev" title="Previous (←)">←</button>
+    <button id="play" class="primary" title="Play / pause (Space)">▶ Play</button>
+    <button id="next" title="Next (→)">→</button>
+    <div class="progress" id="progress"></div>
+    <button id="speed" title="Speed">1×</button>
+    <button id="fit" title="Show whole board">Fit</button>
+  </div>
+</div>
+
+<script>
+/* ---------------- Two views of the same agent; globals hold the active one ---------------- */
+let FRAMES, NODES, EDGES, STICKIES, STEPS, WORLD;
+const VIEWS = {};
+const W = 110; // half card width
+const h = (a, b, y) => `M${a + W},${y} L${b - W},${y}`;
+const v = (x, y1, y2) => `M${x},${y1} L${x},${y2}`;
+
+/* ---------------- LOW LEVEL: every step ---------------- */
+VIEWS.low = (() => {
+const FRAMES = [
+  { x: 60, y: 60,   w: 2080, h: 440, title: "1 · INGEST  —  once per company  (python -m app.ingest)" },
+  { x: 60, y: 580,  w: 2080, h: 460, title: "2 · STARTUP  —  each time the agent starts  (load_agent)" },
+  { x: 60, y: 1120, w: 2080, h: 500, title: "3 · ANSWERING  —  on every message  (LangGraph: retrieve → answer)" },
+];
+
+const NODES = [
+  // Ingest
+  { id: "i_cmd",   x: 220,  y: 390, n: "1.1", tag: "you",   title: "Run command",  sub: "--company + PDF path(s)" },
+  { id: "i_val",   x: 520,  y: 390, n: "1.2", tag: "local", title: "Validate",     sub: "exists? ends in .pdf?" },
+  { id: "i_read",  x: 820,  y: 390, n: "1.3", tag: "local", title: "Read PDF",     sub: "pypdf, page by page" },
+  { id: "i_split", x: 1120, y: 390, n: "1.4", tag: "local", title: "Split",        sub: "~1000-char chunks" },
+  { id: "i_embed", x: 1420, y: 390, n: "1.5", tag: "cloud", title: "Embed",        sub: "chunk text → vectors" },
+  { id: "i_save",  x: 1720, y: 390, n: "1.6", tag: "local", title: "Save",         sub: "Chroma, temp folder" },
+  { id: "i_swap",  x: 2020, y: 390, n: "1.7", tag: "local", title: "Swap in",      sub: "store/ = Company X" },
+  { id: "x_pdf",   x: 820,  y: 180, type: "doc", badge: "PDF", title: "company.pdf", sub: "brochure, pricing…" },
+  { id: "x_gem1",  x: 1420, y: 180, type: "cloud", title: "Google Gemini", sub: "gemini-embedding-001" },
+  // Startup
+  { id: "s_env",   x: 220,  y: 900, n: "2.1", tag: "local", title: "Load settings", sub: ".env → app/config.py" },
+  { id: "s_co",    x: 520,  y: 900, n: "2.2", tag: "local", title: "Who am I?",     sub: "read company.json" },
+  { id: "s_open",  x: 820,  y: 900, n: "2.3", tag: "local", title: "Open store",    sub: "retriever, k = 4" },
+  { id: "s_model", x: 1120, y: 900, n: "2.4", tag: "local", title: "Pick model",    sub: "init_chat_model()" },
+  { id: "s_graph", x: 1420, y: 900, n: "2.5", tag: "local", title: "Build graph",   sub: "retrieve → answer" },
+  { id: "x_env",   x: 220,  y: 690, type: "doc", badge: "ENV", title: ".env", sub: "API key + models" },
+  { id: "x_store", x: 2020, y: 690, type: "db", title: "store/", sub: "chroma/ + company.json" },
+  // Answer
+  { id: "a_user",  x: 220,  y: 1440, n: "3.1", tag: "you",   title: "Customer asks",  sub: "“How much is it?”" },
+  { id: "a_mem",   x: 520,  y: 1440, n: "3.2", tag: "local", title: "Load memory",    sub: "history by thread_id" },
+  { id: "a_query", x: 820,  y: 1440, n: "3.3", tag: "local", title: "Search text",    sub: "last 3 questions" },
+  { id: "a_embq",  x: 1120, y: 1440, n: "3.4", tag: "cloud", title: "Embed question", sub: "question → vector" },
+  { id: "a_find",  x: 1420, y: 1440, n: "3.5", tag: "local", title: "Find chunks",    sub: "top 4 matches" },
+  { id: "a_prompt",x: 1720, y: 1440, n: "3.6", tag: "local", title: "Build prompt",   sub: "rules + chunks + chat" },
+  { id: "a_gen",   x: 2020, y: 1440, n: "3.7", tag: "cloud", title: "Generate",       sub: "Gemini writes reply" },
+  { id: "x_ram",   x: 520,  y: 1230, type: "db", title: "Memory (RAM)", sub: "InMemorySaver" },
+  { id: "x_gem2",  x: 1120, y: 1230, type: "cloud", title: "Google Gemini", sub: "gemini-embedding-001" },
+  { id: "x_gem3",  x: 2020, y: 1230, type: "cloud", title: "Google Gemini", sub: "gemini-3.5-flash-lite" },
+];
+
+const EDGES = {
+  e_cmd_val: [h(220, 520, 390), "blue"],      e_val_read: [h(520, 820, 390), "green"],
+  e_pdf_read: [v(820, 238, 335), "violet"],   e_read_split: [h(820, 1120, 390), "green"],
+  e_split_embed: [h(1120, 1420, 390), "green"],
+  e_embed_gem: [v(1395, 335, 232), "orange"], e_gem_embed: [v(1445, 232, 335), "orange"],
+  e_embed_save: [h(1420, 1720, 390), "green"], e_save_swap: [h(1720, 2020, 390), "green"],
+  e_swap_store: [v(2020, 445, 630), "violet"],
+  e_env_senv: [v(220, 748, 845), "violet"],   e_senv_co: [h(220, 520, 900), "green"],
+  e_store_co: ["M1995,752 C1995,1030 520,1030 520,955", "violet"],
+  e_co_open: [h(520, 820, 900), "green"],
+  e_store_open: ["M2020,754 C2020,1000 820,1000 820,955", "violet"],
+  e_open_model: [h(820, 1120, 900), "green"], e_model_graph: [h(1120, 1420, 900), "green"],
+  e_user_mem: [h(220, 520, 1440), "blue"],    e_ram_mem: [v(520, 1292, 1385), "violet"],
+  e_mem_query: [h(520, 820, 1440), "green"],  e_query_embq: [h(820, 1120, 1440), "green"],
+  e_embq_gem: [v(1095, 1385, 1280), "orange"], e_gem_embq: [v(1145, 1280, 1385), "orange"],
+  e_embq_find: [h(1120, 1420, 1440), "green"],
+  e_store_find: ["M2060,748 C2060,1090 1420,1090 1420,1385", "violet"],
+  e_find_prompt: [h(1420, 1720, 1440), "green"], e_prompt_gen: [h(1720, 2020, 1440), "green"],
+  e_gen_gem: [v(1995, 1385, 1280), "orange"], e_gem_gen: [v(2045, 1280, 1385), "orange"],
+  e_gen_mem: ["M1990,1495 C1990,1555 540,1555 540,1495", "violet"],
+  e_gen_user: ["M2050,1495 C2050,1612 220,1612 220,1495", "blue"],
+};
+
+const STICKIES = {
+  st_cmd:   [220, 185, -2,   "Company name comes\nONLY from here.\nNothing hardcoded"],
+  st_val:   [520, 185, 1.5,  "Bad file? Stops\nhere — current\ncompany untouched"],
+  st_split: [1120, 185, -1.5,"1000 chars / chunk\n150 overlap so no\nsentence is lost"],
+  st_save:  [1720, 185, 2,   "Built in temp folder.\nAPI fails? Old\ncompany stays"],
+  st_swap:  [2020, 185, -2,  "company.json:\n{ company:\n  \"Company X\" }"],
+  st_co:    [520, 695, -1.5, "No store/?\n→ \"Run ingest\n   first\""],
+  st_open:  [820, 695, 2,    "Must use SAME\nembedding model\nas ingest!"],
+  st_model: [1120, 695, -2,  "No API call yet.\nSwap model by\nediting .env"],
+  st_graph: [1420, 695, 1.5, "START → retrieve\n→ answer → END\n+ memory saver"],
+  st_user:  [220, 1235, -2,  "thread_id =\n\"terminal\" (later:\nWhatsApp number)"],
+  st_query: [820, 1235, 1.5, "Q1 + Q2 + Q3\nso \"it\" still means\nthe course"],
+  st_prompt:[1720, 1235, -1.5,"ONLY use context ·\nrefuse off-topic ·\nnever invent"],
+};
+
+/* ---------------- Story ---------------- */
+const STEPS = [
+  { phase: "Overview", title: "How the agent works", tag: "",
+    body: "Three stages: <b>Ingest</b> turns a company PDF into searchable data, <b>Startup</b> loads it, and <b>Answering</b> runs on every customer message. Press <b>▶ Play</b> or Space. You can drag to pan and scroll to zoom." },
+  // 1 · Ingest
+  { p: 1, node: "i_cmd", sticky: "st_cmd", tag: "you", title: "You run the ingest command",
+    body: "<code>python -m app.ingest --company \"Company X\" x.pdf</code>. This one command decides which company the agent represents." },
+  { p: 1, node: "i_val", sticky: "st_val", flows: [["e_cmd_val", "x.pdf"]], tag: "local", title: "Validate the files",
+    body: "Every path must exist and end in <code>.pdf</code>. If not, it stops with <code>Not a PDF file</code> before touching anything." },
+  { p: 1, node: "i_read", flows: [["e_val_read", "path"], ["e_pdf_read", "page text"]], tag: "local", title: "Read the PDF, page by page",
+    body: "<code>pypdf</code> pulls the text out of each page. Each page becomes a <code>Document</code> with its text plus the file name and page number." },
+  { p: 1, node: "i_split", sticky: "st_split", flows: [["e_read_split", "24 pages"]], tag: "local", title: "Split into chunks",
+    body: "<code>RecursiveCharacterTextSplitter</code> cuts pages into roughly 1000-character pieces, splitting on paragraphs first, then lines, then words." },
+  { p: 1, node: "i_embed", flows: [["e_split_embed", "61 chunks"], ["e_embed_gem", "chunk text"], ["e_gem_embed", "[0.01, -0.08, …]"]], tag: "cloud", title: "Embed: text → vectors (Gemini)",
+    body: "Each chunk's text goes to Google's <code>gemini-embedding-001</code>, which returns a <b>vector</b>: a long list of numbers that captures the chunk's meaning. This is the only time PDF text leaves your laptop during ingest." },
+  { p: 1, node: "i_save", sticky: "st_save", flows: [["e_embed_save", "chunks + vectors"]], tag: "local", title: "Save into Chroma",
+    body: "The chunks, their vectors and their metadata go into a local Chroma vector database, built in a temporary folder first." },
+  { p: 1, node: "i_swap", sticky: "st_swap", flows: [["e_save_swap", "temp folder"], ["e_swap_store", "store/"]], tag: "store", title: "Swap in the new company",
+    body: "It writes <code>company.json</code>, deletes the old <code>store/</code> and renames the temp folder. The agent is now Company X's assistant." },
+  // 2 · Startup
+  { p: 2, node: "s_env", flows: [["e_env_senv", "GOOGLE_API_KEY"]], tag: "local", title: "Load settings from .env",
+    body: "<code>app/config.py</code> reads the API key, <code>LLM_MODEL</code> (gemini-3.5-flash-lite) and <code>EMBEDDING_MODEL</code> (gemini-embedding-001)." },
+  { p: 2, node: "s_co", sticky: "st_co", flows: [["e_senv_co", "settings"], ["e_store_co", "company.json"]], tag: "local", title: "Who am I? Read company.json",
+    body: "<code>load_agent()</code> reads the company name. It goes into every system prompt: \"You are the customer assistant for Company X\"." },
+  { p: 2, node: "s_open", sticky: "st_open", flows: [["e_co_open", "Company X"], ["e_store_open", "vectors"]], tag: "local", title: "Open the vector store",
+    body: "It opens <code>store/chroma/</code> as a <b>retriever</b> that returns the <b>4</b> chunks closest in meaning to any search text." },
+  { p: 2, node: "s_model", sticky: "st_model", flows: [["e_open_model", "retriever"]], tag: "local", title: "Pick the chat model",
+    body: "<code>init_chat_model(\"google_genai:gemini-3.5-flash-lite\")</code> creates the Gemini client. Because it goes through LangChain, switching provider later is a one-line <code>.env</code> change." },
+  { p: 2, node: "s_graph", sticky: "st_graph", flows: [["e_model_graph", "llm"]], tag: "local", title: "Build the LangGraph",
+    body: "Two nodes, <code>retrieve</code> → <code>answer</code>, compiled with an <code>InMemorySaver</code> that keeps each conversation's history under its <code>thread_id</code>. The agent is ready." },
+  // 3 · Answering
+  { p: 3, node: "a_user", sticky: "st_user", tag: "you", title: "A customer sends a message",
+    body: "<code>chat.py</code> calls <code>ask(agent, \"How much is it?\", thread_id)</code>. The thread_id identifies the conversation. On WhatsApp it will be the phone number." },
+  { p: 3, node: "a_mem", flows: [["e_user_mem", "How much is it?"], ["e_ram_mem", "Q1, A1 (history)"]], tag: "local", title: "Load this user's memory",
+    body: "LangGraph loads the saved history for this thread_id and appends the new question. Different users never see each other's chats." },
+  { p: 3, node: "a_query", sticky: "st_query", flows: [["e_mem_query", "messages"]], tag: "local", title: "Build the search text",
+    body: "The <code>retrieve</code> node joins the <b>last 3 user messages</b>, so a follow-up like \"How much is it?\" still carries its topic." },
+  { p: 3, node: "a_embq", flows: [["e_query_embq", "search text"], ["e_embq_gem", "search text"], ["e_gem_embq", "query vector"]], tag: "cloud", title: "Embed the question (Gemini call #1)",
+    body: "The search text goes to <code>gemini-embedding-001</code> and comes back as a vector in the same \"meaning space\" as the PDF chunks." },
+  { p: 3, node: "a_find", flows: [["e_embq_find", "query vector"], ["e_store_find", "4 closest chunks"]], tag: "local", title: "Find the 4 best chunks (local)",
+    body: "Chroma compares the question vector with every chunk vector <b>on your laptop</b> and returns the 4 closest. These chunks are the agent's <b>only</b> source of truth." },
+  { p: 3, node: "a_prompt", sticky: "st_prompt", flows: [["e_find_prompt", "context"]], tag: "local", title: "Build the prompt",
+    body: "The <code>answer</code> node fills the system prompt with the company name, the rules and the 4 chunks, then adds the full chat history after it." },
+  { p: 3, node: "a_gen", flows: [["e_prompt_gen", "system + history"], ["e_gen_gem", "prompt"], ["e_gem_gen", "reply text"]], tag: "cloud", title: "Gemini writes the reply (call #2)",
+    body: "<code>gemini-3.5-flash-lite</code> answers from the chunks only. If the PDF doesn't cover the question, it says it doesn't have that information. If the question is off-topic, it politely refuses." },
+  { p: 3, node: "a_user", flows: [["e_gen_mem", "save turn"], ["e_gen_user", "Bot: ₹12,000/month…"]], tag: "you", title: "Reply sent, memory saved",
+    body: "The answer is appended to the history (saved under the thread_id) and printed to the customer. The next message starts again at 3.1, now with more memory." },
+];
+STEPS[0].body += " Switch to <b>High level</b> (top) for the simple version.";
+return { FRAMES, NODES, EDGES, STICKIES, STEPS, WORLD: { x: 0, y: -20, w: 2200, h: 1680 } };
+})();
+
+/* ---------------- HIGH LEVEL: the big picture ---------------- */
+VIEWS.high = (() => {
+const FRAMES = [
+  { x: 60, y: 60,  w: 1780, h: 380, title: "SETUP  —  once per company" },
+  { x: 60, y: 520, w: 1780, h: 460, title: "EVERY MESSAGE  —  customer asks, agent answers" },
+];
+const NODES = [
+  { id: "h_pdf",    x: 260,  y: 290, type: "doc", badge: "PDF", title: "company.pdf", sub: "any company's data" },
+  { id: "h_ingest", x: 760,  y: 290, n: "1", tag: "local", title: "Ingest", sub: "read · split · embed" },
+  { id: "h_gem1",   x: 760,  y: 140, type: "cloud", title: "Google Gemini", sub: "embeddings" },
+  { id: "h_kb",     x: 1300, y: 290, type: "db", title: "Knowledge base", sub: "store/ on your laptop" },
+  { id: "h_user",   x: 260,  y: 800, n: "2", tag: "you",   title: "Customer", sub: "asks a question" },
+  { id: "h_find",   x: 760,  y: 800, n: "3", tag: "local", title: "Find info", sub: "search the chunks" },
+  { id: "h_gen",    x: 1300, y: 800, n: "4", tag: "cloud", title: "Answer", sub: "Gemini, strict rules" },
+  { id: "h_gem2",   x: 1300, y: 630, type: "cloud", title: "Google Gemini", sub: "gemini-3.5-flash-lite" },
+];
+const EDGES = {
+  e_pdf_ing:   [h(260, 760, 290), "violet"],
+  e_ing_gem:   [v(735, 235, 192), "orange"], e_gem_ing: [v(785, 192, 235), "orange"],
+  e_ing_kb:    ["M870,290 L1208,290", "violet"],
+  e_user_find: [h(260, 760, 800), "blue"],
+  e_kb_find:   ["M1260,350 C1260,560 760,560 760,745", "violet"],
+  e_find_gen:  [h(760, 1300, 800), "green"],
+  e_gen_gem:   [v(1275, 745, 682), "orange"], e_gem_gen: [v(1325, 682, 745), "orange"],
+  e_gen_user:  ["M1300,855 C1300,960 260,960 260,855", "blue"],
+};
+const STICKIES = {
+  hs_ing:  [260, 140, -2,   "One command\nper company.\nNothing hardcoded"],
+  hs_kb:   [1650, 290, 2,   "New company?\nRun ingest again\n→ agent switches"],
+  hs_user: [260, 640, -1.5, "Terminal now,\nWhatsApp later\n(same agent)"],
+  hs_gen:  [1650, 800, 1.5, "Off-topic → refuses\nNot in PDF → says so\nNever invents"],
+};
+const STEPS = [
+  { phase: "Overview", title: "The big picture", tag: "",
+    body: "Two parts: <b>Setup</b> loads a company's PDF into a knowledge base, once. Then on <b>every message</b> the agent searches that knowledge base and Gemini writes the answer. Press <b>▶ Play</b>. Switch to <b>Low level</b> (top) for all 20 detailed steps." },
+  { p: 1, node: "h_ingest", sticky: "hs_ing", flows: [["e_pdf_ing", "company.pdf"]], tag: "local", title: "Load the company's PDF",
+    body: "You run one command with the company name and its PDF. The agent reads the text and cuts it into small chunks." },
+  { p: 1, node: "h_ingest", flows: [["e_ing_gem", "chunk text"], ["e_gem_ing", "meaning as numbers"]], tag: "cloud", title: "Gemini turns text into searchable meaning",
+    body: "Each chunk is sent to Gemini's embedding model, which returns a <b>vector</b>: numbers that capture what the chunk means. That lets the agent search by meaning, not just by matching words." },
+  { p: 1, node: "h_kb", sticky: "hs_kb", flows: [["e_ing_kb", "chunks + vectors"]], tag: "store", title: "Saved as the knowledge base",
+    body: "Everything is stored locally in <code>store/</code>. This is the agent's <b>only</b> knowledge about the company." },
+  { p: 2, node: "h_user", sticky: "hs_user", tag: "you", title: "A customer asks a question",
+    body: "When the agent starts, it loads the knowledge base and the Gemini model. Then a customer asks something like \"How much is the course?\"" },
+  { p: 2, node: "h_find", flows: [["e_user_find", "How much is it?"], ["e_kb_find", "4 best chunks"]], tag: "local", title: "Find the relevant info",
+    body: "The agent searches the knowledge base for the <b>4 chunks</b> closest in meaning to the question. It includes the recent chat, so follow-ups make sense. The search runs on your laptop." },
+  { p: 2, node: "h_gen", sticky: "hs_gen", flows: [["e_find_gen", "question + chunks"], ["e_gen_gem", "rules + chunks + chat"], ["e_gem_gen", "answer"]], tag: "cloud", title: "Gemini writes the answer",
+    body: "Gemini gets strict rules, the 4 chunks and the chat history, and answers <b>only</b> from the chunks. If the answer isn't there it says so. Off-topic questions get a polite refusal." },
+  { p: 2, node: "h_user", flows: [["e_gen_user", "Bot: ₹12,000/month…"]], tag: "you", title: "Reply sent, conversation remembered",
+    body: "The customer gets the reply. The agent remembers this conversation, so the next question can be a follow-up." },
+];
+return { FRAMES, NODES, EDGES, STICKIES, STEPS, WORLD: { x: 0, y: -20, w: 1900, h: 1040 } };
+})();
+
+/* ---------------- EMBEDDING: ingest in depth (PDF → chunks → vectors → disk) ---------------- */
+VIEWS.embed = (() => {
+const FRAMES = [
+  { x: 60, y: 60,   w: 1880, h: 440, title: "1 · PARSE + SPLIT  —  on your laptop  (pypdf + text splitter)" },
+  { x: 60, y: 580,  w: 1880, h: 460, title: "2 · EMBED + SAVE  —  Gemini makes vectors, Chroma stores them" },
+  { x: 60, y: 1120, w: 1880, h: 380, title: "3 · WHAT ENDS UP ON DISK  —  store/  (gitignored)" },
+];
+const NODES = [
+  { id: "p_pdf",    x: 220,  y: 390, type: "doc", badge: "PDF", title: "company.pdf", sub: "e.g. 2 pages" },
+  { id: "p_read",   x: 520,  y: 390, n: "1", tag: "local", title: "Open PDF",       sub: "PdfReader(path)" },
+  { id: "p_text",   x: 820,  y: 390, n: "2", tag: "local", title: "Extract text",   sub: "page.extract_text()" },
+  { id: "p_docs",   x: 1120, y: 390, n: "3", tag: "local", title: "Page docs",      sub: "text + {source, page}" },
+  { id: "p_split",  x: 1420, y: 390, n: "4", tag: "local", title: "Split",          sub: "1000 chars · 150 overlap" },
+  { id: "p_chunks", x: 1720, y: 390, n: "5", tag: "local", title: "Chunks",         sub: "e.g. 972·989·605·332" },
+  { id: "m_batch",  x: 220,  y: 900, n: "6", tag: "local", title: "Batch",          sub: "≤ 100 chunks / call" },
+  { id: "m_embed",  x: 620,  y: 900, n: "7", tag: "cloud", title: "Embed",          sub: "RETRIEVAL_DOCUMENT" },
+  { id: "m_gem",    x: 620,  y: 690, type: "cloud", title: "Google Gemini", sub: "gemini-embedding-001" },
+  { id: "m_vec",    x: 1020, y: 900, n: "8", tag: "local", title: "Vectors",        sub: "3072 numbers / chunk" },
+  { id: "m_add",    x: 1420, y: 900, n: "9", tag: "local", title: "Chroma add",     sub: "id·text·meta·vector" },
+  { id: "m_store",  x: 1780, y: 900, type: "db", title: "store/", sub: "temp → swapped in" },
+  { id: "f_sqlite", x: 1020, y: 1320, type: "doc", badge: "DB",   title: "chroma.sqlite3", sub: "text + metadata" },
+  { id: "f_index",  x: 1420, y: 1320, type: "doc", badge: "BIN",  title: "<uuid>/*.bin",   sub: "vectors + index" },
+  { id: "f_json",   x: 1780, y: 1320, type: "doc", badge: "JSON", title: "company.json",   sub: "who am I?" },
+];
+const EDGES = {
+  e_pdf_read:     ["M300,390 L410,390", "violet"],
+  e_read_text:    [h(520, 820, 390), "green"],  e_text_docs:   [h(820, 1120, 390), "green"],
+  e_docs_split:   [h(1120, 1420, 390), "green"], e_split_chunks: [h(1420, 1720, 390), "green"],
+  e_chunks_batch: ["M1720,445 C1720,640 220,600 220,845", "green"],
+  e_batch_embed:  [h(220, 620, 900), "green"],
+  e_embed_gem:    [v(595, 845, 742), "orange"], e_gem_embed: [v(645, 742, 845), "orange"],
+  e_embed_vec:    [h(620, 1020, 900), "green"], e_vec_add: [h(1020, 1420, 900), "green"],
+  e_add_store:    ["M1530,900 L1685,900", "violet"],
+  e_store_sqlite: ["M1740,962 C1740,1170 1020,1110 1020,1265", "violet"],
+  e_store_index:  ["M1760,962 C1760,1150 1420,1150 1420,1265", "violet"],
+  e_store_json:   [v(1800, 962, 1265), "violet"],
+};
+const STICKIES = {
+  st_text:   [820, 185, -2,    "Text only: scanned\npages → empty,\ntables → flat lines"],
+  st_meta:   [1120, 185, 1.5,  "{ source: \"x.pdf\",\n  page: 1 }\nrides along forever"],
+  st_split:  [1420, 185, -1.5, "Cut at ¶ → line\n→ space → char,\nwhichever fits 1000"],
+  st_chunks: [1720, 185, 2,    "Pages are split\nseparately: a chunk\nnever spans 2 pages"],
+  st_vec:    [1020, 690, 1.5,  "\"pricing\" ≈ \"cost\"\n→ vectors point the\nsame way"],
+  st_swap:   [1420, 690, -2,   "Built in store.tmp-*\nOnly on success:\ndelete old, rename"],
+  st_later:  [420, 1320, -1.5, "Later: question →\nsame model (QUERY)\n→ 4 nearest chunks"],
+};
+const STEPS = [
+  { phase: "Overview", title: "How the PDF becomes searchable", tag: "",
+    body: "This zooms into <b>ingest</b>: <b>parse</b> the PDF with pypdf, <b>split</b> it into chunks, <b>embed</b> each chunk with Gemini, and <b>save</b> chunks + vectors to <code>store/</code>. Numbers shown are for a 2-page PDF. Press <b>▶ Play</b>." },
+  { p: 1, node: "p_read", flows: [["e_pdf_read", "company.pdf"]], tag: "local", title: "Open the PDF",
+    body: "<code>PdfReader(path)</code> opens the file and gives a list of pages. Nothing is sent anywhere; this is all on your laptop." },
+  { p: 1, node: "p_text", sticky: "st_text", flows: [["e_read_text", "page 1, page 2"]], tag: "local", title: "Extract the text of each page",
+    body: "<code>page.extract_text()</code> pulls out the text layer of every page (e.g. 2366 chars on page 1, 332 on page 2). Images are ignored, and a scanned page with no text layer comes back empty." },
+  { p: 1, node: "p_docs", sticky: "st_meta", flows: [["e_text_docs", "raw text"]], tag: "local", title: "One Document per page",
+    body: "Each page becomes a LangChain <code>Document</code>: its text plus metadata <code>{source, page}</code>. Pages are <b>not</b> glued into one big text; they stay separate so every chunk knows where it came from." },
+  { p: 1, node: "p_split", sticky: "st_split", flows: [["e_docs_split", "2 page docs"]], tag: "local", title: "Split into chunks",
+    body: "<code>RecursiveCharacterTextSplitter</code> cuts each page into pieces of at most <b>1000 characters</b>, preferring paragraph breaks, then lines, then words. Neighbouring chunks share <b>150 characters</b> so a sentence on the boundary isn't lost." },
+  { p: 1, node: "p_chunks", sticky: "st_chunks", flows: [["e_split_chunks", "4 chunks"]], tag: "local", title: "Result: small, labelled chunks",
+    body: "Page 1 (2366 chars) → 3 chunks of 972, 989 and 605 chars. Page 2 (332 chars) → 1 chunk. Each chunk keeps its page's metadata." },
+  { p: 2, node: "m_batch", flows: [["e_chunks_batch", "4 chunks"]], tag: "local", title: "Group into API batches",
+    body: "The chunks are sent to Gemini in batches of up to 100, so a small PDF needs just <b>one</b> API request." },
+  { p: 2, node: "m_embed", flows: [["e_batch_embed", "4 texts"], ["e_embed_gem", "chunk text + API key"], ["e_gem_embed", "4 vectors"]], tag: "cloud", title: "Gemini embeds each chunk",
+    body: "<code>gemini-embedding-001</code> reads each chunk (task type <code>RETRIEVAL_DOCUMENT</code>) and returns one vector per chunk. This is the <b>only</b> moment PDF text leaves your laptop during ingest." },
+  { p: 2, node: "m_vec", sticky: "st_vec", flows: [["e_embed_vec", "vectors"]], tag: "local", title: "A vector = meaning as numbers",
+    body: "Each vector is a list of <b>3072 numbers</b>, like <code>[0.012, -0.081, 0.044, …]</code>. Texts with similar meaning get vectors that point in a similar direction, even if they use different words." },
+  { p: 2, node: "m_add", flows: [["e_vec_add", "chunk + vector"]], tag: "local", title: "Chroma stores them together",
+    body: "<code>Chroma.from_documents()</code> gives each chunk an id and saves <b>id + text + metadata + vector</b> as one record, inside a temporary folder <code>store.tmp-*/chroma/</code>." },
+  { p: 2, node: "m_store", sticky: "st_swap", flows: [["e_add_store", "temp folder"]], tag: "store", title: "Swap in as the active company",
+    body: "It writes <code>company.json</code>, deletes the old <code>store/</code> and renames the temp folder to <code>store/</code>. If Gemini failed midway, the temp folder is deleted and the previous company stays." },
+  { p: 3, node: "f_sqlite", flows: [["e_store_sqlite", "records"]], tag: "store", title: "store/chroma/chroma.sqlite3",
+    body: "A single SQLite file holding every chunk's <b>id, text and metadata</b> (source file, page). This is where the words the agent quotes come from." },
+  { p: 3, node: "f_index", flows: [["e_store_index", "vectors"]], tag: "store", title: "store/chroma/<uuid>/*.bin",
+    body: "Binary files (<code>data_level0.bin</code>, <code>link_lists.bin</code>, …) holding the <b>vectors</b> and an <b>HNSW index</b>: a graph that finds the nearest vectors fast without comparing against every chunk." },
+  { p: 3, node: "f_json", flows: [["e_store_json", "company.json"]], tag: "store", title: "store/company.json",
+    body: "<code>{company, files, pages, chunks, ingested_at}</code>. The agent reads it at startup to know which company it represents." },
+  { p: 3, node: "f_index", sticky: "st_later", tag: "store", title: "How it's used later",
+    body: "When a customer asks something, the question is embedded with the <b>same model</b> (task <code>RETRIEVAL_QUERY</code>), the index returns the 4 nearest chunks, and their text goes to Gemini as context. Change the embedding model → re-run ingest." },
+];
+return { FRAMES, NODES, EDGES, STICKIES, STEPS, WORLD: { x: 0, y: -20, w: 2000, h: 1560 } };
+})();
+
+/* ---------------- Drawing ---------------- */
+const NS = "http://www.w3.org/2000/svg";
+const svg = document.getElementById("board");
+const el = (tag, attrs = {}, parent, text) => {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text != null) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+};
+const $ = id => document.getElementById(id);
+const TAGTXT = { you: "YOU", local: "LOCAL", cloud: "GOOGLE API", store: "STORED" };
+
+let nodeEls, edgeEls, stickyEls;
+function build() {
+for (const id of ["frames", "edges", "nodes", "stickies"]) $(id).innerHTML = "";
+nodeEls = {}; edgeEls = {}; stickyEls = {};
+for (const f of FRAMES) {
+  const g = el("g", { class: "frame" }, $("frames"));
+  el("text", { x: f.x + 4, y: f.y - 16 }, g, f.title);
+  el("rect", { x: f.x, y: f.y, width: f.w, height: f.h, rx: 18 }, g);
+}
+
+for (const n of NODES) {
+  const g = el("g", { class: "node", transform: `translate(${n.x},${n.y})` }, $("nodes"));
+  nodeEls[n.id] = g;
+  if (!n.type) {
+    g.classList.add(n.tag);
+    el("rect", { class: "ring", x: -W, y: -55, width: 2 * W, height: 110, rx: 16 }, g);
+    el("rect", { class: "card", x: -W, y: -55, width: 2 * W, height: 110, rx: 16 }, g);
+    el("circle", { class: `badge-${n.tag}`, cx: -82, cy: -26, r: 15 }, g);
+    el("text", { class: "badge-num", x: -82, y: -21, "text-anchor": "middle" }, g, n.n);
+    el("text", { class: "title", x: -58, y: -19 }, g, n.title);
+    el("text", { class: "sub", x: -94, y: 11 }, g, n.sub);
+    const label = TAGTXT[n.tag], cw = label.length * 7.4 + 16;
+    el("rect", { class: `chip-${n.tag}`, x: -94, y: 22, width: cw, height: 20, rx: 10 }, g);
+    el("text", { class: `chip-text ${n.tag}`, x: -94 + cw / 2, y: 36, "text-anchor": "middle" }, g, label);
+  } else if (n.type === "cloud") {
+    g.classList.add("cloud");
+    for (const [cx, cy, r] of [[-62, 0, 40], [-12, -24, 50], [48, -6, 42], [86, 16, 30], [-96, 20, 28]])
+      el("circle", { class: "cloud-shape", cx, cy, r }, g);
+    el("rect", { class: "cloud-shape", x: -110, y: 4, width: 220, height: 44, rx: 22 }, g);
+    el("text", { class: "ext-title", x: 0, y: 4, "text-anchor": "middle" }, g, "☁  " + n.title);
+    el("text", { class: "ext-sub", x: 0, y: 28, "text-anchor": "middle" }, g, n.sub);
+  } else if (n.type === "db") {
+    g.classList.add("store");
+    el("rect", { class: "ring", x: -95, y: -62, width: 190, height: 124, rx: 20 }, g);
+    el("path", { class: "db-body", d: "M-90,-38 L-90,38 A90,16 0 0 0 90,38 L90,-38" }, g);
+    el("ellipse", { class: "db-body", cx: 0, cy: -38, rx: 90, ry: 16 }, g);
+    el("text", { class: "ext-title", x: 0, y: 4, "text-anchor": "middle" }, g, n.title);
+    el("text", { class: "ext-sub", x: 0, y: 26, "text-anchor": "middle" }, g, n.sub);
+  } else if (n.type === "doc") {
+    g.classList.add("store");
+    el("path", { class: "doc-body", d: "M-80,-55 L56,-55 L80,-31 L80,55 L-80,55 Z" }, g);
+    el("path", { class: "doc-fold", d: "M56,-55 L56,-31 L80,-31 Z" }, g);
+    el("rect", { class: n.badge === "PDF" ? "pdf-badge" : "env-badge", x: -64, y: -40, width: 46, height: 22, rx: 5 }, g);
+    el("text", { x: -41, y: -24, "text-anchor": "middle", style: "fill:#fff;font-size:12px;font-weight:700" }, g, n.badge);
+    el("text", { class: "ext-title", x: -64, y: 12 }, g, n.title);
+    el("text", { class: "ext-sub", x: -64, y: 34 }, g, n.sub);
+  }
+}
+
+for (const [id, [d, color]] of Object.entries(EDGES)) {
+  const base = el("path", { class: "edge-base", d, "marker-end": "url(#arrow)" }, $("edges"));
+  const draw = el("path", { class: `edge-draw ${color}`, d }, $("edges"));
+  edgeEls[id] = { base, draw, color, len: draw.getTotalLength() };
+}
+
+for (const [id, [x, y, rot, text]] of Object.entries(STICKIES)) {
+  const outer = el("g", { transform: `translate(${x},${y}) rotate(${rot})` }, $("stickies"));
+  const pop = el("g", { class: "sticky-pop" }, outer);
+  el("rect", { x: -100, y: -58, width: 200, height: 116, rx: 3 }, pop);
+  text.split("\n").forEach((line, i) => el("text", { x: -86, y: -24 + i * 26 }, pop, line));
+  stickyEls[id] = pop;
+}
+buildProgress();
+}
+
+/* ---------------- Camera ---------------- */
+let cam = { x: 0, y: 0, w: 2200, h: 1680 };
+const applyCam = () => svg.setAttribute("viewBox", `${cam.x} ${cam.y} ${cam.w} ${cam.h}`);
+const ease = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+// Fit a world rect into the visible area above the caption dock.
+function fitRect(r) {
+  const vw = svg.clientWidth, vh = svg.clientHeight;
+  const dockH = document.querySelector(".dock").offsetHeight + 24, topH = 64;
+  const availH = Math.max(120, vh - dockH - topH);
+  const s = Math.max(r.w / (vw - 32), r.h / availH);           // world units per pixel
+  const w = vw * s, hh = vh * s;
+  const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+  const offsetPx = (topH - dockH) / 2;                         // shift center into free area
+  return { x: cx - w / 2, y: cy - hh / 2 - offsetPx * s, w, h: hh };
+}
+
+let camAnim = 0;
+function moveCam(target, ms) {
+  const from = { ...cam }, t0 = performance.now(), id = ++camAnim;
+  return new Promise(res => {
+    const f = now => {
+      if (id !== camAnim) return res();
+      const t = Math.min(1, (now - t0) / ms), e = ease(t);
+      for (const k of ["x", "y", "w", "h"]) cam[k] = from[k] + (target[k] - from[k]) * e;
+      applyCam();
+      t < 1 ? requestAnimationFrame(f) : res();
+    };
+    requestAnimationFrame(f);
+  });
+}
+
+function stepRect(s) {
+  if (!s.node) return WORLD;
+  const pts = [];
+  const add = (x1, y1, x2, y2) => pts.push([x1, y1], [x2, y2]);
+  const n = NODES.find(n => n.id === s.node);
+  add(n.x - 140, n.y - 80, n.x + 140, n.y + 80);
+  if (s.sticky) { const [x, y] = STICKIES[s.sticky]; add(x - 120, y - 80, x + 120, y + 80); }
+  for (const [e] of s.flows || []) { const b = edgeEls[e].draw.getBBox(); add(b.x - 140, b.y - 70, b.x + b.width + 140, b.y + b.height + 70); }
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  let x = Math.min(...xs), y = Math.min(...ys), w = Math.max(...xs) - x, hh = Math.max(...ys) - y;
+  if (w < 1150) { x -= (1150 - w) / 2; w = 1150; }
+  return { x, y, w, h: hh };
+}
+
+/* ---------------- Player ---------------- */
+let cur = 0, playing = false, speed = 1, token = 0;
+const packet = $("packet"), pText = packet.querySelector("text"), pRect = packet.querySelector("rect");
+const COLORS = { blue: "var(--you)", orange: "var(--cloud)", violet: "var(--store)", green: "var(--local)" };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function runFlow(edgeId, label, tk) {
+  const e = edgeEls[edgeId], c = COLORS[e.color];
+  pText.textContent = label;
+  const tw = pText.getComputedTextLength() + 28;
+  pRect.setAttribute("x", -tw / 2); pRect.setAttribute("width", tw); pRect.style.stroke = c;
+  packet.querySelectorAll("circle").forEach(ci => ci.style.fill = c);
+  pText.style.fill = c;
+  packet.classList.add("show");
+  e.draw.classList.remove("done"); e.draw.classList.add("show");
+  e.draw.style.strokeDasharray = e.len; e.draw.style.strokeDashoffset = e.len;
+  const D = Math.max(900, e.len * 2.2) / speed, t0 = performance.now();
+  return new Promise(res => {
+    const f = now => {
+      if (tk !== token) return res();
+      const t = Math.min(1, (now - t0) / D), k = ease(t);
+      const p = e.draw.getPointAtLength(k * e.len);
+      packet.setAttribute("transform", `translate(${p.x},${p.y})`);
+      e.draw.style.strokeDashoffset = e.len * (1 - k);
+      if (t < 1) return requestAnimationFrame(f);
+      e.draw.style.strokeDasharray = ""; e.draw.style.strokeDashoffset = "";
+      e.draw.classList.add("done");
+      packet.classList.remove("show");
+      res();
+    };
+    requestAnimationFrame(f);
+  });
+}
+
+// Static state: everything up to step i-1 done; step i's flows not yet drawn.
+function setState(i) {
+  const doneEdges = new Set(), onNodes = new Set(), shown = new Set();
+  STEPS.forEach((s, k) => {
+    if (k > i || !s.node) return;
+    onNodes.add(s.node);
+    if (s.sticky) shown.add(s.sticky);
+    for (const [e] of s.flows || []) {
+      if (k < i) doneEdges.add(e);
+      // light up the external boxes this flow touches
+      const d = EDGES[e][0];
+      for (const n of NODES) if (n.type && pathTouches(d, n)) onNodes.add(n.id);
+    }
+  });
+  for (const [id, g] of Object.entries(nodeEls)) {
+    g.classList.toggle("on", i === 0 || onNodes.has(id));
+    g.classList.toggle("active", STEPS[i].node === id);
+  }
+  for (const [id, e] of Object.entries(edgeEls)) {
+    e.draw.style.strokeDasharray = ""; e.draw.style.strokeDashoffset = "";
+    e.draw.classList.toggle("show", doneEdges.has(id));
+    e.draw.classList.toggle("done", doneEdges.has(id));
+  }
+  for (const [id, p] of Object.entries(stickyEls)) p.classList.toggle("show", i === 0 ? false : shown.has(id) && id !== STEPS[i].sticky);
+  packet.classList.remove("show");
+}
+function pathTouches(d, n) {
+  const nums = d.match(/-?\d+(\.\d+)?/g).map(Number);
+  const pts = [[nums[0], nums[1]], [nums[nums.length - 2], nums[nums.length - 1]]];
+  return pts.some(([x, y]) => Math.abs(x - n.x) < 120 && Math.abs(y - n.y) < 90);
+}
+
+function setCaption(i) {
+  const s = STEPS[i];
+  $("phase").textContent = s.p ? FRAMES[s.p - 1].title.split("—")[0].trim() : "Overview";
+  $("count").textContent = i ? `· Step ${i} of ${STEPS.length - 1}` : "";
+  const tag = $("tag");
+  tag.className = "tag " + (s.tag || ""); tag.textContent = s.tag ? TAGTXT[s.tag] : ""; tag.style.display = s.tag ? "" : "none";
+  $("title").textContent = s.title;
+  $("body").innerHTML = s.body;
+  [...$("progress").querySelectorAll("span")].forEach(sp => {
+    const k = +sp.dataset.i; sp.classList.toggle("done", k <= i); sp.classList.toggle("cur", k === i);
+  });
+}
+
+async function go(i, animate = true) {
+  cur = Math.max(0, Math.min(STEPS.length - 1, i));
+  const tk = ++token, s = STEPS[cur];
+  setState(cur); setCaption(cur);
+  const camMs = animate ? 1000 / speed : 0;
+  if (camMs) await moveCam(fitRect(stepRect(s)), camMs); else { cam = fitRect(stepRect(s)); applyCam(); }
+  if (tk !== token) return;
+  for (const [e, label] of s.flows || []) {
+    await runFlow(e, label, tk);
+    if (tk !== token) return;
+  }
+  if (s.sticky) stickyEls[s.sticky].classList.add("show");
+  if (!playing) return;
+  await sleep(2600 / speed);
+  if (tk !== token || !playing) return;
+  if (cur < STEPS.length - 1) go(cur + 1);
+  else setPlaying(false);
+}
+
+function setPlaying(p) {
+  playing = p;
+  $("play").textContent = p ? "❚❚ Pause" : "▶ Play";
+  if (p) go(cur === 0 || cur === STEPS.length - 1 ? 1 : cur);
+}
+
+function buildProgress() {
+  $("progress").innerHTML = "";
+  STEPS.forEach((s, i) => {
+    if (i > 1 && s.p !== STEPS[i - 1].p) $("progress").appendChild(document.createElement("i"));
+    const sp = document.createElement("span");
+    sp.dataset.i = i; sp.className = "p" + (s.p || 1); sp.title = s.title;
+    sp.onclick = () => { setPlaying(false); go(i); };
+    $("progress").appendChild(sp);
+  });
+}
+
+function setView(name) {
+  setPlaying(false); token++; camAnim++;
+  ({ FRAMES, NODES, EDGES, STICKIES, STEPS, WORLD } = VIEWS[name]);
+  document.querySelectorAll(".seg button").forEach(b => b.classList.toggle("on", b.dataset.view === name));
+  build();
+  go(0, false);
+}
+document.querySelectorAll(".seg button").forEach(b => b.onclick = () => setView(b.dataset.view));
+
+$("play").onclick = () => setPlaying(!playing);
+$("next").onclick = () => { setPlaying(false); go(cur + 1); };
+$("prev").onclick = () => { setPlaying(false); go(cur - 1); };
+$("fit").onclick = () => { token++; camAnim++; moveCam(fitRect(WORLD), 800); };
+$("speed").onclick = () => { speed = speed === 1 ? 1.6 : speed === 1.6 ? 0.6 : 1; $("speed").textContent = { 1: "1×", 1.6: "1.6×", 0.6: "0.6×" }[speed]; };
+addEventListener("keydown", e => {
+  if (e.key === " ") { e.preventDefault(); setPlaying(!playing); }
+  if (e.key === "ArrowRight") $("next").click();
+  if (e.key === "ArrowLeft") $("prev").click();
+});
+addEventListener("resize", () => { cam = fitRect(stepRect(STEPS[cur])); applyCam(); });
+
+/* ---------------- Pan & zoom (like a whiteboard) ---------------- */
+const scale = () => Math.max(cam.w / svg.clientWidth, cam.h / svg.clientHeight);
+let drag = null;
+svg.addEventListener("pointerdown", e => { camAnim++; drag = { x: e.clientX, y: e.clientY }; svg.classList.add("dragging"); svg.setPointerCapture(e.pointerId); });
+svg.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const s = scale();
+  cam.x -= (e.clientX - drag.x) * s; cam.y -= (e.clientY - drag.y) * s;
+  drag = { x: e.clientX, y: e.clientY }; applyCam();
+});
+svg.addEventListener("pointerup", () => { drag = null; svg.classList.remove("dragging"); });
+svg.addEventListener("wheel", e => {
+  e.preventDefault(); camAnim++;
+  const s = scale(), f = Math.exp(e.deltaY * 0.0015);
+  const r = svg.getBoundingClientRect();
+  // world point under cursor stays fixed
+  const ox = (svg.clientWidth - cam.w / s) / 2, oy = (svg.clientHeight - cam.h / s) / 2;
+  const wx = cam.x + (e.clientX - r.left - ox) * s, wy = cam.y + (e.clientY - r.top - oy) * s;
+  const nw = Math.min(6000, Math.max(300, cam.w * f)), k = nw / cam.w;
+  cam = { x: wx - (wx - cam.x) * k, y: wy - (wy - cam.y) * k, w: nw, h: cam.h * k };
+  applyCam();
+}, { passive: false });
+
+// ?view=low|embed&step=N opens directly on a view/step (handy for sharing a specific moment)
+document.fonts.ready.then(() => {
+  const q = new URLSearchParams(location.search);
+  setView(VIEWS[q.get("view")] ? q.get("view") : "high");
+  if (q.get("step")) go(+q.get("step"), false);
+});
+</script>
+</body>
+</html>

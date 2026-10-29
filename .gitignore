@@ -1,0 +1,6 @@
+store/
+store.tmp-*/
+.env
+.venv/
+__pycache__/
+company/

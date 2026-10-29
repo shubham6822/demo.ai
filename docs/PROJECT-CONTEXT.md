@@ -22,7 +22,7 @@ The project is used as a sales/demo tool. When we demo to Company X, we use Comp
 
 | Phase | What | Status |
 |-------|------|--------|
-| 1 | Agent + one-command ingest of any company's PDF(s); answers grounded only in that data | **Current** |
+| 1 | Agent + one-command ingest of any company's PDF(s); answers grounded only in that data ([plan](PHASE-1.md)) | **Current** |
 | 2 | Expose agent over HTTP with FastAPI (`POST /chat`) for local testing | Planned |
 | 3 | WhatsApp integration (webhook → agent → reply) | Later, not in scope now |
 | 4 | Deployment | Later |
@@ -44,15 +44,15 @@ WhatsApp details (number, Meta account, provider) are **out of scope** until Pha
 | Language | Python 3.11+ | |
 | API | FastAPI | Phase 2 onward |
 | Agent framework | **LangGraph** (+ LangChain components) | See decision below |
-| PDF loading | LangChain `PyPDFLoader` | |
+| PDF loading | `pypdf` (wrapped into LangChain `Document`s) | `langchain-community` loaders are deprecated |
 | Chunking | `RecursiveCharacterTextSplitter` | |
 | Vector store | Chroma (local, persisted to disk) | No external DB needed |
-| LLM | **Not decided yet** | Use `init_chat_model` so the provider can be switched through config |
-| Embeddings | **Not decided yet** | Depends on the LLM provider choice |
+| LLM | **Google Gemini: `gemini-3.5-flash-lite`** | Through `init_chat_model`, so switching only needs a `.env` change |
+| Embeddings | **Google `gemini-embedding-001`** | Changing it requires re-running ingest |
 
 ### Why LangGraph (with LangChain parts)
 
-- **LangChain** supplies the building blocks: PDF loader, text splitter, vector store and a provider-agnostic chat model (`init_chat_model`). That matters because the model is not chosen yet.
+- **LangChain** supplies the building blocks: PDF loader, text splitter, vector store and a provider-agnostic chat model (`init_chat_model`). That matters so the model can be changed through config.
 - **LangGraph** runs the agent flow. Its built-in checkpointer gives **per-user conversation memory keyed by a `thread_id`**. Later that ID will be the WhatsApp phone number, so we don't need to build memory ourselves.
 - LangGraph also makes the later additions simple: human handoff, extra tools (e.g. order lookup) and guardrail steps.
 - Plain LangChain alone would work for single-turn Q&A, but it would need hand-rolled memory as soon as we add chat.
@@ -80,8 +80,10 @@ demo.ai/
 ├── docs/PROJECT-CONTEXT.md
 ├── store/              # generated: Chroma DB + company.json (gitignored)
 ├── app/
+│   ├── config.py       # paths + model settings from .env
 │   ├── ingest.py       # CLI: --company NAME + PDF path(s) → replaces vector store
 │   ├── agent.py        # LangGraph agent (retrieve → answer, with memory)
+│   ├── chat.py         # terminal chat (Phase 1 demo)
 │   └── main.py         # FastAPI app (Phase 2)
 ├── .env.example        # model/provider keys and settings
 └── requirements.txt
@@ -89,8 +91,8 @@ demo.ai/
 
 ## Open Decisions
 
-- [ ] LLM provider and model
-- [ ] Embedding model (provider-hosted or local)
+- [x] LLM: Gemini `gemini-3.5-flash-lite` (decided 2026-10-29)
+- [x] Embeddings: `gemini-embedding-001` (decided 2026-10-29)
 - [ ] Reply language(s): English only, or also Hindi/other languages?
 - [ ] Memory storage: in-memory for now; a persistent checkpointer (SQLite/Postgres) before production
 

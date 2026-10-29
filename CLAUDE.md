@@ -6,7 +6,7 @@ Full context, phases and decisions: **[docs/PROJECT-CONTEXT.md](docs/PROJECT-CON
 ## Stack
 
 Python 3.11+, FastAPI, LangGraph + LangChain components, Chroma (local vector store).
-The LLM and embedding model are **not decided yet**, so never hardcode a provider. Create models through `init_chat_model` and pick the provider and model from env config.
+Models: Gemini `gemini-3.5-flash-lite` (chat) and `gemini-embedding-001` (embeddings), both set in `.env` (see `app/config.py`). Create chat models only through `init_chat_model(LLM_MODEL)` so the provider can be swapped by config.
 
 ## Rules
 
@@ -21,7 +21,8 @@ The LLM and embedding model are **not decided yet**, so never hardcode a provide
 ## Commands
 
 ```bash
-python -m app.ingest --company "Company X" path/to/companyx.pdf   # switch agent to Company X (planned)
+python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt
+cp .env.example .env                                   # then add GOOGLE_API_KEY
+.venv/bin/python -m app.ingest --company "Company X" path/to/x.pdf   # switch agent to Company X
+.venv/bin/python -m app.chat                           # chat in terminal
 ```
-
-_Install, run and test commands will be added once code exists._
